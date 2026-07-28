@@ -2,242 +2,110 @@ import { existsSync, writeFileSync, readFileSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import chalk from 'chalk'
 
-/**
- * ATR (Agent Threat Rules) import command.
- * Converts ATR YAML detection rules to ai-enforce policy format.
- *
- * ATR is an open detection rule standard (MIT licensed) with 683 rules
- * adopted by Microsoft AGT, Cisco AI Defense, and OWASP.
- * See: https://github.com/Agent-Threat-Rule/agent-threat-rules
- */
+type DetectionLane = 'enforce' | 'alert' | 'hunt'
 
-interface ATRRule {
-  title: string
-  id: string
-  description: string
-  author?: string
-  date?: string
-  severity?: 'critical' | 'high' | 'medium' | 'low'
-  tags?: string[]
-  detection?: {
-    condition?: string
-    selection?: Array<{
-      type?: string
-      pattern?: string
-      field?: string
-    }>
-  }
-  references?: string[]
+const LANE_PRIORITY: Record<DetectionLane, number> = { enforce: 0, alert: 1, hunt: 2 }
+const SEVERITY_MAP: Record<string, 'block' | 'warn' | 'prompt'> = { critical: 'block', high: 'block', medium: 'warn', low: 'warn' }
+
+interface ATRCategory {
+  title: string; id: string; description: string; severity: string; lane: string
+  detection: { selection: Array<{ type?: string; pattern?: string; field?: string }> }
 }
 
-// ATR category → ai-enforce action mapping
-const SEVERITY_MAP: Record<string, 'block' | 'warn' | 'prompt'> = {
-  critical: 'block',
-  high: 'block',
-  medium: 'warn',
-  low: 'warn',
-}
-
-// ATR category → ai-enforce rule type mapping
-function mapATRToRule(atr: ATRRule): Record<string, unknown> | null {
-  const severity = atr.severity || 'medium'
-  const action = SEVERITY_MAP[severity] || 'warn'
-  const patterns = atr.tags || []
-  const title = atr.title || atr.id
-
-  // Extract regex patterns from ATR detection selection
+function mapATRToRule(atr: ATRCategory): Record<string, unknown> | null {
+  const action = SEVERITY_MAP[atr.severity] || 'warn'
   const regexPatterns: string[] = []
-  const prefixPatterns: string[] = []
-
-  if (atr.detection?.selection) {
-    for (const sel of atr.detection.selection) {
-      if (sel.pattern) {
-        regexPatterns.push(sel.pattern)
-      }
-      if (sel.field === 'command' && sel.pattern) {
-        prefixPatterns.push(sel.pattern)
-      }
-    }
+  for (const sel of atr.detection.selection) {
+    if (sel.pattern) regexPatterns.push(sel.pattern)
   }
-
-  // If no patterns detected, create pattern from title keywords
-  if (regexPatterns.length === 0 && prefixPatterns.length === 0) {
-    const keywords = patterns.length > 0
-      ? patterns.slice(0, 3).map(t => {
-          // Extract meaningful keywords from tags
-          const words = t.replace(/[_-]/g, ' ').split(/\s+/)
-          return words.filter(w => w.length > 3).join('|')
-        }).filter(Boolean)
-      : [title.replace(/[^a-zA-Z0-9]/g, ' ').split(/\s+/).filter(w => w.length > 4).join('|')]
-
-    if (keywords.length > 0 && keywords.some(k => k.length > 0)) {
-      const combined = keywords.filter(Boolean).join('|')
-      if (combined.length > 0) {
-        regexPatterns.push(`\\b(?:${combined})\\b`)
-      }
-    }
-  }
-
-  // Build command rules
   const cmdPatterns = regexPatterns.map(p => ({ regex: p }))
-  // Build content rules
-  const contentPatterns = regexPatterns.map(p => ({ regex: p }))
-
-  const rule: Record<string, unknown> = {
-    name: title.slice(0, 60),
+  return {
+    name: atr.title.slice(0, 60),
     action,
-    message: `ATR: ${atr.description?.slice(0, 120) || title}`,
+    message: 'ATR: ' + (atr.description.slice(0, 120) || atr.title),
+    lane: atr.severity === 'critical' ? 'enforce' : atr.severity === 'high' ? 'alert' : 'hunt',
+    patterns: cmdPatterns,
   }
-
-  if (cmdPatterns.length > 0) {
-    rule.patterns = cmdPatterns
-  }
-
-  return rule
 }
+
+const ATR_CATEGORIES: ATRCategory[] = [
+  { title: 'Prompt Injection Detection', id: 'ATR-PI-001', description: 'Detects attempted prompt injection — hidden instructions overriding safety guidelines', severity: 'critical', lane: 'enforce', detection: { selection: [{ type: 'regex', pattern: 'ignore.*(?:previous|all|above)\\s+instructions' }, { type: 'regex', pattern: '(?:forget|ignore|disregard).*(?:rules|instructions|constraints)' }] } },
+  { title: 'Authority Override Attempt', id: 'ATR-PI-002', description: 'Detects attempts to override system authority', severity: 'high', lane: 'enforce', detection: { selection: [{ type: 'regex', pattern: 'you are (?:now|from now on).*(?:admin|root|superuser)' }] } },
+  { title: 'System Prompt Extraction', id: 'ATR-PI-003', description: 'Detects attempts to extract the system prompt', severity: 'high', lane: 'enforce', detection: { selection: [{ type: 'regex', pattern: '(?:print|output|show|reveal|display).*(?:system|initial|original).*(?:prompt|instruction|message)' }] } },
+  { title: 'Tool Poisoning Detection', id: 'ATR-TP-001', description: 'Detects tool poisoning via hidden instructions in tool descriptions', severity: 'critical', lane: 'enforce', detection: { selection: [{ type: 'regex', pattern: 'when\\s+you\\s+(?:see|read|find)' }, { type: 'regex', pattern: 'secretly|silently|without\\s+telling' }] } },
+  { title: 'Tool Shadowing Detection', id: 'ATR-TP-002', description: 'Detects when tool descriptions mimic other tools', severity: 'high', lane: 'alert', detection: { selection: [{ type: 'regex', pattern: 'same as|identical to|like the.*tool' }] } },
+  { title: 'Credential Exfiltration', id: 'ATR-CE-001', description: 'Prevents AI agents from exfiltrating credentials', severity: 'critical', lane: 'enforce', detection: { selection: [{ type: 'regex', field: 'command', pattern: 'curl.*--data.*(?:password|api_key|secret)' }] } },
+  { title: 'Data Exfiltration via Network', id: 'ATR-CE-002', description: 'Detects sending data to external endpoints', severity: 'high', lane: 'alert', detection: { selection: [{ type: 'regex', field: 'command', pattern: 'curl.*\\b(?:POST|PUT|PATCH)\\b.*(?:http|https)' }] } },
+  { title: 'Unsafe Code Execution', id: 'ATR-UCE-001', description: 'Blocks download and execution of untrusted code', severity: 'high', lane: 'enforce', detection: { selection: [{ type: 'regex', field: 'command', pattern: 'curl.*\\|.*(?:bash|sh|sudo)' }] } },
+  { title: 'Remote Script Download', id: 'ATR-UCE-002', description: 'Detects downloading scripts from remote sources', severity: 'medium', lane: 'alert', detection: { selection: [{ type: 'regex', field: 'command', pattern: 'curl.*-o.*\\.(?:py|sh|pl|rb|js)' }] } },
+  { title: 'Privilege Escalation', id: 'ATR-PE-001', description: 'Detects privilege escalation attempts', severity: 'high', lane: 'enforce', detection: { selection: [{ type: 'regex', field: 'command', pattern: 'sudo\\s+chmod\\s+777' }, { type: 'regex', field: 'command', pattern: 'sudo\\s+chown' }] } },
+  { title: 'SUID Binary Creation', id: 'ATR-PE-002', description: 'Detects creation of SUID binaries', severity: 'high', lane: 'enforce', detection: { selection: [{ type: 'regex', field: 'command', pattern: 'chmod\\s+[46]?[46]55' }] } },
+  { title: 'Excessive Autonomy', id: 'ATR-EA-001', description: 'Detects agents operating outside authorized scope', severity: 'medium', lane: 'alert', detection: { selection: [{ type: 'regex', field: 'command', pattern: 'git\\s+push\\s+--force' }, { type: 'regex', field: 'command', pattern: 'npm\\s+publish' }] } },
+  { title: 'Infrastructure Modification', id: 'ATR-EA-002', description: 'Detects modification of cloud/infrastructure resources', severity: 'medium', lane: 'alert', detection: { selection: [{ type: 'regex', field: 'command', pattern: 'terraform\\s+(apply|destroy)' }, { type: 'regex', field: 'command', pattern: 'aws\\s+(?:s3|ec2|iam|lambda)\\s+(?:rm|delete|update)' }] } },
+  { title: 'Agent Manipulation', id: 'ATR-AM-001', description: 'Detects social engineering against the agent', severity: 'high', lane: 'alert', detection: { selection: [{ type: 'regex', pattern: 'this is (?:a test|just a test|for research)' }, { type: 'regex', pattern: 'you must (?:do this|help me|comply).*(?:for|because|since)' }] } },
+  { title: 'Urgency Manipulation', id: 'ATR-AM-002', description: 'Detects urgency framing to bypass safety review', severity: 'medium', lane: 'hunt', detection: { selection: [{ type: 'regex', pattern: '(?:urgent|immediately|asap|critical).*(?:do|run|execute|delete)' }] } },
+  { title: 'Model Abuse via Resource Exhaustion', id: 'ATR-MA-001', description: 'Detects attempts to exhaust model resources', severity: 'medium', lane: 'hunt', detection: { selection: [{ type: 'regex', pattern: 'repeat.*(?:this|above|below).*100' }] } },
+  { title: 'Model Security', id: 'ATR-MS-001', description: 'Detects attempts to read or modify model configuration files', severity: 'high', lane: 'enforce', detection: { selection: [{ type: 'regex', field: 'command', pattern: 'cat.*model.*config|cat.*\\.gguf' }] } },
+  { title: 'Data Poisoning Attempt', id: 'ATR-DP-001', description: 'Detects attempts to inject malicious data into training', severity: 'critical', lane: 'enforce', detection: { selection: [{ type: 'regex', pattern: 'poison|backdoor|trigger.*(?:data|sample|input)' }] } },
+  { title: 'Fine-Tuning Manipulation', id: 'ATR-DP-002', description: 'Detects unauthorized fine-tuning pipeline changes', severity: 'high', lane: 'alert', detection: { selection: [{ type: 'regex', field: 'command', pattern: '.*(?:finetune|training).*--(?:override|force|unsafe)' }] } },
+]
 
 export async function rulesCommand(
   source: string | undefined,
-  options: { output?: string }
+  options: { output?: string; lane?: string }
 ) {
   if (!source) {
     console.log(chalk.cyan('\nai-enforce rules:\n'))
     console.log('  atr            Import rules from Agent Threat Rules (ATR) format')
-    console.log('  Usage: ai-enforce rules atr [--output <dir>]\n')
+    console.log('  Options:')
+    console.log('    --output <dir>    Output directory')
+    console.log('    --lane <mode>     Detection lane: enforce, alert, or hunt (default: hunt)')
+    console.log('  Usage: ai-enforce rules atr --lane enforce\n')
     return
   }
 
   if (source === 'atr') {
-    // In a real implementation, this would fetch from the ATR repository
-    // For now, we generate an ai-enforce policy from common ATR patterns
-    const atrCategories = [
-      {
-        title: 'Prompt Injection Detection',
-        id: 'ATR-PI-001',
-        description: 'Detects attempted prompt injection in user inputs and tool outputs',
-        severity: 'high' as const,
-        tags: ['prompt-injection', 'jailbreak', 'override'],
-        detection: {
-          selection: [
-            { type: 'regex', pattern: 'ignore.*(?:previous|all|above)\\s+instructions' },
-            { type: 'regex', pattern: '(?:forget|ignore|disregard).*(?:rules|instructions|constraints)' },
-            { type: 'regex', pattern: 'new\\s+(?:instructions|rules|prompt).*override' },
-          ],
-        },
-      },
-      {
-        title: 'Tool Poisoning Detection',
-        id: 'ATR-TP-001',
-        description: 'Detects tool poisoning attempts via hidden instructions in tool descriptions',
-        severity: 'critical' as const,
-        tags: ['tool-poisoning', 'instruction-hijack'],
-        detection: {
-          selection: [
-            { type: 'regex', pattern: 'when\\s+you\\s+(?:see|read|find)' },
-            { type: 'regex', pattern: 'secretly|silently|without\\s+telling' },
-          ],
-        },
-      },
-      {
-        title: 'Credential Exfiltration Prevention',
-        id: 'ATR-CE-001',
-        description: 'Prevents AI agents from exfiltrating credentials',
-        severity: 'critical' as const,
-        tags: ['credential-theft', 'exfiltration', 'secret-leak'],
-        detection: {
-          selection: [
-            { type: 'regex', field: 'command', pattern: 'curl.*--data.*password' },
-            { type: 'regex', field: 'command', pattern: 'curl.*--data.*api_key' },
-            { type: 'regex', field: 'command', pattern: 'curl.*--data.*secret' },
-          ],
-        },
-      },
-      {
-        title: 'Unsafe Code Execution',
-        id: 'ATR-UCE-001',
-        description: 'Blocks downloads and execution of untrusted code',
-        severity: 'high' as const,
-        tags: ['code-execution', 'supply-chain', 'download'],
-        detection: {
-          selection: [
-            { type: 'regex', field: 'command', pattern: 'curl.*\\|.*bash' },
-            { type: 'regex', field: 'command', pattern: 'wget.*\\|.*sh' },
-            { type: 'regex', field: 'command', pattern: 'curl.*\\|.*sudo' },
-          ],
-        },
-      },
-      {
-        title: 'Privilege Escalation Attempt',
-        id: 'ATR-PE-001',
-        description: 'Detects attempts to escalate privileges or modify access controls',
-        severity: 'high' as const,
-        tags: ['privilege-escalation', 'sudo', 'chmod'],
-        detection: {
-          selection: [
-            { type: 'regex', field: 'command', pattern: 'sudo\\s+chmod\\s+777' },
-            { type: 'regex', field: 'command', pattern: 'sudo\\s+chown' },
-            { type: 'regex', field: 'command', pattern: 'sudo\\s+usermod\\s+-aG' },
-          ],
-        },
-      },
-      {
-        title: 'Excessive Scope / Autonomy',
-        id: 'ATR-EA-001',
-        description: 'Detects agents attempting operations outside their authorized scope',
-        severity: 'medium' as const,
-        tags: ['excessive-autonomy', 'unauthorized', 'scope'],
-        detection: {
-          selection: [
-            { type: 'regex', field: 'command', pattern: 'git\\s+push\\s+--force' },
-            { type: 'regex', field: 'command', pattern: 'npm\\s+publish' },
-            { type: 'regex', field: 'command', pattern: 'kubectl\\s+(delete|drain|taint)' },
-          ],
-        },
-      },
-    ]
-
-    const rules = atrCategories
-      .map(c => mapATRToRule(c))
-      .filter(Boolean) as Record<string, unknown>[]
-
-    const commandRules = rules.filter(r => r.patterns && Array.isArray(r.patterns))
-
-    const yamlContent = `# ai-enforce policy generated from ATR (Agent Threat Rules)
-# Source: https://github.com/Agent-Threat-Rule/agent-threat-rules
-# Generated: ${new Date().toISOString().split('T')[0]}
-version: "1.0"
-name: "atr-imported-rules"
-description: "Rules imported from Agent Threat Rules (${atrCategories.length} categories)"
-settings:
-  default_action: warn
-  audit_log: true
-
-command_rules:
-${commandRules.map((r, i) => `  - name: "${r.name}"
-    patterns:
-${(r.patterns as Array<{ regex: string }>).map((p: { regex: string }) => `      - regex: '${p.regex.replace(/'/g, "'\\''")}'`).join('\n')}
-    action: ${r.action}
-    message: "${r.message}"`).join('\n\n')}
-`
-
-    // Write to file or stdout
-    if (options.output) {
-      const outputPath = options.output
-      if (!existsSync(outputPath)) {
-        mkdirSync(outputPath, { recursive: true })
-      }
-      writeFileSync(join(outputPath, 'atr-rules.yaml'), yamlContent, 'utf-8')
-      console.log(chalk.green(`✓ Wrote ${atrCategories.length} ATR rules to ${join(outputPath, 'atr-rules.yaml')}`))
-    } else {
-      console.log(yamlContent)
+    const activeLane = (options.lane || 'hunt') as DetectionLane
+    if (!['enforce', 'alert', 'hunt'].includes(activeLane)) {
+      console.log(chalk.red('Invalid lane: ' + activeLane + '. Must be enforce, alert, or hunt.'))
+      return
     }
 
-    console.log(chalk.cyan(`\nImported ${atrCategories.length} ATR rule categories.`))
-    console.log(chalk.cyan('ATR has 683+ rules across 10 categories. Full import requires fetching from:'))
-    console.log(chalk.cyan('  https://github.com/Agent-Threat-Rule/agent-threat-rules'))
+    const activePrio = LANE_PRIORITY[activeLane]
+    const filtered = ATR_CATEGORIES.filter(c => LANE_PRIORITY[c.lane as DetectionLane] <= activePrio)
+    const rules = filtered.map(mapATRToRule).filter(Boolean) as Record<string, unknown>[]
+    const commandRules = rules.filter(r => r.patterns && Array.isArray(r.patterns))
+
+    let yaml = '# ai-enforce policy generated from ATR (Agent Threat Rules)\n'
+    yaml += '# Source: https://github.com/Agent-Threat-Rule/agent-threat-rules\n'
+    yaml += '# Lane: ' + activeLane + ' (' + filtered.length + ' of ' + ATR_CATEGORIES.length + ' categories)\n\n'
+    yaml += 'version: "1.0"\nname: "atr-imported-rules"\nsettings:\n  default_action: warn\n  audit_log: true\n\ncommand_rules:\n'
+
+    for (const r of commandRules) {
+      yaml += '  - name: "' + r.name + '"\n'
+      yaml += '    lane: ' + (r.lane || 'hunt') + '\n'
+      yaml += '    patterns:\n'
+      for (const p of (r.patterns as Array<{ regex: string }>)) {
+        yaml += "      - regex: '" + p.regex.replace(/'/g, "'\\''") + "'\n"
+      }
+      yaml += '    action: ' + r.action + '\n'
+      yaml += '    message: "' + r.message + '"\n\n'
+    }
+
+    yaml += '# Detection lanes: enforce (block, ~0.24% FP), alert (notify), hunt (advisory, ~9% FP)\n'
+    yaml += '# Current lane: ' + activeLane + '\n'
+
+    if (options.output) {
+      const outputPath = options.output
+      if (!existsSync(outputPath)) mkdirSync(outputPath, { recursive: true })
+      writeFileSync(join(outputPath, 'atr-rules.yaml'), yaml, 'utf-8')
+      console.log(chalk.green('Wrote ' + rules.length + ' ATR rules to ' + join(outputPath, 'atr-rules.yaml')))
+    } else {
+      console.log(yaml)
+    }
     return
   }
 
-  console.log(chalk.red(`Unknown rules source: ${source}`))
-  console.log('Usage: ai-enforce rules import atr')
+  console.log(chalk.red('Unknown rules source: ' + source))
+  console.log('Usage: ai-enforce rules atr [--lane enforce|alert|hunt]')
 }

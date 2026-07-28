@@ -65,6 +65,7 @@ program
   .description('Import rules from external sources')
   .argument('[source]', 'Rule source (atr)')
   .option('--output <path>', 'Output directory')
+  .option('--lane <mode>', 'Detection lane: enforce, alert, or hunt (default: hunt)')
   .action(rulesCommand)
 
 program

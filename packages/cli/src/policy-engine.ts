@@ -62,7 +62,15 @@ export class PolicyEngine {
 
   evaluate(event: ToolCallEvent): EnforcementResult[] {
     const results: EnforcementResult[] = []
-    if (!this.policy) return results
+    if (!this.policy) {
+      // Fail-closed: no policy means deny everything
+      results.push({
+        action: 'block', rule_name: 'fail-closed',
+        message: 'No policy loaded. Set up .ai-enforce.yaml to enable enforcement.',
+        timestamp: new Date().toISOString(),
+      })
+      return results
+    }
 
     if (event.tool_name === 'bash' || event.tool_name === 'run_command') {
       const cmd = String(event.args.command || '')
