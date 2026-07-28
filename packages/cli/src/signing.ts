@@ -13,6 +13,8 @@ import {
   createHash,
   randomUUID,
 } from 'node:crypto'
+import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs'
+import { join } from 'node:path'
 
 export interface SigningKey {
   kid: string
@@ -45,13 +47,24 @@ let previousEntryHash: string | null = null
 export function initSigning(): SigningKey {
   if (currentKey) return currentKey
 
-  // Check for env var override
+  // Check for env var override first
   const envKey = process.env.AI_ENFORCE_SIGNING_KEY_JWK
   if (envKey) {
     try {
       const parsed = JSON.parse(envKey) as SigningKey
       currentKey = parsed
       return parsed
+    } catch { /* fall through to disk or generate */ }
+  }
+
+  // Try loading from disk (persisted across sessions)
+  const keyDir = join(process.cwd(), '.ai-enforce')
+  const keyPath = join(keyDir, 'signing-key.json')
+  if (existsSync(keyPath)) {
+    try {
+      const stored = JSON.parse(readFileSync(keyPath, 'utf-8')) as SigningKey
+      currentKey = stored
+      return stored
     } catch { /* fall through to generate */ }
   }
 
@@ -75,6 +88,12 @@ export function initSigning(): SigningKey {
     privateKeyJwk: { ...privateJwk, kid } as any,
     publicKeyJwk: { ...publicJwk, kid } as any,
   }
+
+  // Persist to disk so signatures can be verified across sessions
+  try {
+    if (!existsSync(keyDir)) mkdirSync(keyDir, { recursive: true })
+    writeFileSync(keyPath, JSON.stringify(currentKey, null, 2))
+  } catch { /* best-effort persistence */ }
 
   return currentKey
 }

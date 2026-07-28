@@ -69,6 +69,9 @@ export class PolicyEngine {
       results.push(...this.evaluateCommand(cmd))
       // API key exposure via shell commands (echo $KEY, cat .env, env | grep)
       results.push(...this.checkApiKeyExposure(cmd))
+      // Check secrets in command string
+      const secretResult = this.checkSecret(cmd)
+      if (secretResult) results.push(secretResult)
     }
 
     if (event.tool_name === 'write_file' || event.tool_name === 'edit') {
@@ -90,6 +93,24 @@ export class PolicyEngine {
       const filePath = String(event.args.filePath || '')
       this.readFiles.add(filePath)
       results.push(...this.evaluateFileRead(filePath))
+      // Check file content for secrets and content rules
+      try {
+        const content = readFileSync(filePath, 'utf-8')
+        const secretResult = this.checkSecret(content)
+        if (secretResult) results.push(secretResult)
+        results.push(...this.evaluateContentRules(content, filePath))
+      } catch { /* file may not exist or be readable */ }
+    }
+
+    if (event.tool_name === 'write_file' || event.tool_name === 'edit') {
+      // Also check content for writes (if content is provided)
+      const content = String(event.args.content || event.args.text || '')
+      if (content) {
+        const secretResult = this.checkSecret(content)
+        if (secretResult) results.push(secretResult)
+        const filePath = String(event.args.filePath || event.args.path || '')
+        results.push(...this.evaluateContentRules(content, filePath))
+      }
     }
 
     if (this.policy.settings?.audit_log !== false) {
@@ -221,6 +242,38 @@ export class PolicyEngine {
           matched_pattern: filePath,
           timestamp: new Date().toISOString(),
         })
+      }
+    }
+    return results
+  }
+
+  /** Evaluate content rules against file content */
+  private evaluateContentRules(content: string, filePath: string): EnforcementResult[] {
+    const results: EnforcementResult[] = []
+    if (!this.policy?.content_rules) return results
+
+    for (const rule of this.policy.content_rules) {
+      // Check if rule applies to this file path
+      if (rule.paths && rule.paths.length > 0) {
+        const matchesPath = rule.paths.some(p => this.matchGlob(filePath, p))
+        if (!matchesPath) continue
+      }
+
+      for (const pattern of rule.patterns) {
+        const regexStr = pattern.regex || pattern.ref
+        if (!regexStr) continue
+        try {
+          const regex = new RegExp(regexStr, 'i')
+          if (regex.test(content)) {
+            results.push({
+              action: rule.action,
+              rule_name: rule.name,
+              message: rule.message,
+              matched_pattern: regexStr.slice(0, 100),
+              timestamp: new Date().toISOString(),
+            })
+          }
+        } catch { /* skip invalid regex */ }
       }
     }
     return results

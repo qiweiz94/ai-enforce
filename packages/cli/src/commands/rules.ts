@@ -238,6 +238,6 @@ ${(r.patterns as Array<{ regex: string }>).map((p: { regex: string }) => `      
     return
   }
 
-  console.log(chalk.red(`Unknown rules command: ${action}`))
+  console.log(chalk.red(`Unknown rules source: ${source}`))
   console.log('Usage: ai-enforce rules import atr')
 }
