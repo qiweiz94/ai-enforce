@@ -25,8 +25,9 @@
 import { spawn, ChildProcess } from 'node:child_process'
 import { createInterface } from 'node:readline'
 import { createHash } from 'node:crypto'
-import { existsSync, readFileSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { PolicyEngine } from '../policy-engine.js'
 
 // Suspicious patterns in tool descriptions (tool poisoning indicators)
@@ -80,12 +81,18 @@ export class MCPGateway {
 
   constructor(config: UpstreamConfig) {
     this.upstreamConfig = config
-    this.engine = new PolicyEngine(
-      process.env.AI_ENFORCE_POLICY || join(process.cwd(), '.ai-enforce.yaml')
-    )
-    if (existsSync(process.env.AI_ENFORCE_POLICY || join(process.cwd(), '.ai-enforce.yaml'))) {
-      this.engine.loadPolicy()
-    }
+    const policyPath = process.env.AI_ENFORCE_POLICY || join(process.cwd(), '.ai-enforce.yaml')
+    this.engine = new PolicyEngine(policyPath)
+    // Load unconditionally, matching `ai-enforce check`.
+    //
+    // Guarding this on existsSync left `policy` null when no file was present,
+    // which routed evaluate() into its fail-closed branch — so the gateway
+    // denied EVERY tool call while the CLI applied defaults for the same
+    // project. One engine, two opposite postures, depending on entry point.
+    //
+    // loadPolicy() itself now draws the distinction that actually matters:
+    // absent file => defaults; present but unparseable => fail closed.
+    this.engine.loadPolicy()
   }
 
   /** Start the upstream MCP server and begin listening */
@@ -367,19 +374,75 @@ export class MCPGateway {
         }
       }
 
-      default:
-        // Forward unknown methods upstream
-        try {
-          const response = await this.sendToUpstream({
-            jsonrpc: '2.0',
-            id: msg.id,
-            method: msg.method,
-            params: msg.params,
-          })
-          return response
-        } catch {
-          return { jsonrpc: '2.0', id: msg.id, result: null }
+      case 'resources/read': {
+        // Reads reach real file content, so they get the same file_rules
+        // treatment as a Read tool. Previously this fell through to `default`
+        // and was forwarded upstream unevaluated — an upstream exposing
+        // resources could serve .env straight past the policy.
+        const uri = String(msg.params?.uri || '')
+        let filePath = uri
+        if (uri.startsWith('file://')) {
+          // fileURLToPath throws ERR_INVALID_URL on a malformed URI. An
+          // upstream (or an agent) could send one; letting it propagate would
+          // take the gateway down, which is a denial-of-enforcement.
+          try {
+            filePath = fileURLToPath(uri)
+          } catch {
+            return {
+              jsonrpc: '2.0',
+              id: msg.id,
+              error: { code: -32602, message: 'ai-enforce: malformed resource URI' },
+            }
+          }
         }
+        if (filePath) {
+          const verdicts = this.engine.evaluate({
+            tool_name: 'read_file',
+            args: { filePath },
+            cwd: process.cwd(),
+            timestamp: new Date().toISOString(),
+          })
+          const blocked = verdicts.find((v) => v.action === 'block')
+          if (blocked) {
+            return {
+              jsonrpc: '2.0',
+              id: msg.id,
+              error: { code: -32000, message: `ai-enforce: ${blocked.message}` },
+            }
+          }
+        }
+        return this.forward(msg)
+      }
+
+      default:
+        // Methods with no policy-relevant payload (ping, logging/setLevel,
+        // completion/complete, ...) are forwarded. tools/call and
+        // resources/read — the two that carry commands and file content — are
+        // handled above; extending coverage means adding a case here, not
+        // widening this fallthrough.
+        return this.forward(msg)
+    }
+  }
+
+  /** Forward a message upstream, surfacing failure as a JSON-RPC error. */
+  private async forward(
+    msg: { method: string; params?: any; id?: number | string | null }
+  ): Promise<unknown> {
+    try {
+      return await this.sendToUpstream({
+        jsonrpc: '2.0',
+        id: msg.id,
+        method: msg.method,
+        params: msg.params,
+      })
+    } catch (err) {
+      // Previously `result: null`, which reads to the client as a successful
+      // empty response rather than a failure.
+      return {
+        jsonrpc: '2.0',
+        id: msg.id,
+        error: { code: -32603, message: `upstream error: ${(err as Error).message}` },
+      }
     }
   }
 }

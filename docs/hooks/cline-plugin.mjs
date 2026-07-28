@@ -1,71 +1,81 @@
 /**
  * Cline plugin for ai-enforce — real-time enforcement via tool.execute.before.
  *
- * This plugin intercepts EVERY tool call (bash, write, edit) BEFORE execution.
- * Blocked actions never reach the filesystem — the AI cannot override them.
+ * Install: place this file at .opencode/plugins/ai-enforce.mjs
  *
- * Install: Place this file in .opencode/plugins/ai-enforce.mjs
- *
- * How it works:
- *   Cline calls this plugin BEFORE every tool execution.
- *   We check the command/target against ai-enforce policy.
- *   If blocked, we throw an error — Cline respects this and blocks the action.
+ * Contract: throwing from `tool.execute.before` blocks the action; returning
+ * normally allows it. So EVERY path that cannot reach a clean verdict must
+ * throw — see the fail-closed note below.
  */
 
-import { execSync } from 'node:child_process'
-import { existsSync } from 'node:fs'
-import { join } from 'node:path'
+import { execFileSync } from 'node:child_process'
 
-const BLOCKED_PREFIX = '✗ [BLOCKED]'
+const BLOCKED = '[BLOCKED]'
 
-export default async function aiEnforcePlugin({ directory }) {
-  const policyPath = join(directory, '.ai-enforce.yaml')
-  if (!existsSync(policyPath)) {
-    return {} // No policy file — skip enforcement
+/**
+ * Ask ai-enforce about one action.
+ *
+ * `ai-enforce check` exits non-zero when it blocks, so execFileSync THROWS on
+ * a block — that is the signal, not an error. An earlier version read only
+ * stdout and treated any throw as "checker unavailable, allow", which meant a
+ * blocked command was allowed. Exit status is now the primary signal; stdout
+ * only supplies the human-readable reason.
+ *
+ * execFileSync with an argv array, never a shell string: the previous
+ * `check --command "${cmd.replace(/"/g,'\\"')}"` still executed backticks and
+ * $(...) taken from the very command it was being asked to police.
+ */
+function decide(args) {
+  try {
+    execFileSync('ai-enforce', args, {
+      encoding: 'utf-8',
+      timeout: 10000,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+    return { blocked: false }
+  } catch (err) {
+    if (typeof err?.status === 'number') {
+      const out = String(err.stdout || '') + String(err.stderr || '')
+      const line = out.split('\n').find((l) => l.includes(BLOCKED))
+      const reason = line
+        ? line.replace(/.*\[BLOCKED\]\s*/, '').replace(/\s*\(rule:.*$/, '').trim()
+        : 'blocked by ai-enforce policy'
+      return { blocked: true, reason }
+    }
+    // Could not run the checker at all (not installed, spawn failure, timeout).
+    // Fail CLOSED: an enforcement layer that cannot evaluate must not wave the
+    // action through, or uninstalling the binary silently disables governance.
+    return { blocked: true, reason: `enforcement unavailable (${err?.code || 'unknown'})` }
   }
+}
 
+export default async function aiEnforcePlugin() {
+  // Deliberately NOT gated on .ai-enforce.yaml existing. `ai-enforce check`
+  // applies built-in defaults when no policy file is present, so returning
+  // early would have meant no enforcement at all for exactly the projects that
+  // had not configured anything yet.
   return {
     'tool.execute.before': async (input, output) => {
-      if (input.tool === 'bash') {
-        const cmd = output.args?.command
-        if (!cmd) return
+      const tool = String(input?.tool || '').toLowerCase()
+      let args = null
 
-        try {
-          const result = execSync(`ai-enforce check --command "${cmd.replace(/"/g, '\\"')}"`, {
-            encoding: 'utf-8',
-            timeout: 5000,
-          })
-          if (result.includes(BLOCKED_PREFIX)) {
-            const reason = result.split(BLOCKED_PREFIX)[1]?.split('\n')[0]?.trim() || 'Blocked by ai-enforce policy'
-            throw new Error(`ai-enforce: ${reason}`)
-          }
-        } catch (err) {
-          if (err instanceof Error && err.message.startsWith('ai-enforce:')) {
-            throw err
-          }
-          // Command check failed — allow to proceed (fail open for reliability)
-        }
+      if (tool === 'bash') {
+        const cmd = output?.args?.command
+        if (cmd) args = ['check', '--command', String(cmd)]
+      } else if (tool === 'write' || tool === 'edit' || tool === 'multiedit') {
+        const p = output?.args?.filePath || output?.args?.file_path || output?.args?.path
+        // --write: file rules can permit reads while blocking writes, so the
+        // question asked has to match the action being taken.
+        if (p) args = ['check', '--file', String(p), '--write']
+      } else if (tool === 'read') {
+        const p = output?.args?.filePath || output?.args?.file_path
+        if (p) args = ['check', '--file', String(p)]
       }
 
-      if (input.tool === 'write' || input.tool === 'edit') {
-        const filePath = output.args?.filePath
-        if (!filePath) return
+      if (!args) return
 
-        try {
-          const result = execSync(`ai-enforce check --file "${filePath}"`, {
-            encoding: 'utf-8',
-            timeout: 5000,
-          })
-          if (result.includes(BLOCKED_PREFIX)) {
-            const reason = result.split(BLOCKED_PREFIX)[1]?.split('\n')[0]?.trim() || 'Blocked by ai-enforce policy'
-            throw new Error(`ai-enforce: ${reason}`)
-          }
-        } catch (err) {
-          if (err instanceof Error && err.message.startsWith('ai-enforce:')) {
-            throw err
-          }
-        }
-      }
+      const verdict = decide(args)
+      if (verdict.blocked) throw new Error(`ai-enforce: ${verdict.reason}`)
     },
   }
 }

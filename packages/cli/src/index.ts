@@ -39,6 +39,7 @@ program
   .option('-f, --file <path>', 'Check a specific file')
   .option('-c, --command <cmd>', 'Check a specific command')
   .option('--ci', 'CI mode: exit with error on any violation')
+  .option('--write', 'Evaluate the target as a WRITE rather than a read (use with --file)')
   .option('--analyze-reasoning <text>', 'Analyze agent reasoning trace for suspicious patterns')
   .action(checkCommand)
 

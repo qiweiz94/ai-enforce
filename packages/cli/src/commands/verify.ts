@@ -2,6 +2,7 @@ import { readFileSync, existsSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import chalk from 'chalk'
 import { verifyReceiptFromJson, getReceiptPublicKey } from '../receipts.js'
+import { verifyChain } from '../signing.js'
 import { createReceipt } from '../receipts.js'
 
 export async function verifyCommand(target?: string, options?: { key?: string; receipt?: string; json?: boolean }) {
@@ -24,6 +25,22 @@ export async function verifyCommand(target?: string, options?: { key?: string; r
     return
   }
 
+  // Audit log: signatures AND chain linkage. Linkage is the half that detects
+  // deleted entries, which signature checks alone cannot.
+  const chain = verifyChain()
+  if (chain.entries > 0) {
+    console.log(chalk.cyan(`\nAudit log — ${chain.entries} entries\n`))
+    console.log(`  signatures: ${chain.signaturesValid} valid, ${chain.signaturesInvalid} invalid`)
+    if (chain.brokenLinks.length === 0) {
+      console.log(chalk.green('  chain: intact (no deleted or reordered entries)'))
+    } else {
+      console.log(chalk.red(`  chain: BROKEN at ${chain.brokenLinks.length} point(s) — entries deleted, reordered or altered`))
+      for (const b of chain.brokenLinks.slice(0, 5)) {
+        console.log(chalk.red(`    line ${b.index + 1} (${b.id}): expected prev ${String(b.expected).slice(0, 12)}, found ${String(b.found).slice(0, 12)}`))
+      }
+    }
+  }
+
   // Batch verify all receipts in the default directory
   const receiptsDir = join(process.cwd(), '.ai-enforce', 'receipts')
   if (!existsSync(receiptsDir)) {
@@ -44,13 +61,16 @@ export async function verifyCommand(target?: string, options?: { key?: string; r
 
   console.log(chalk.cyan('\nVerifying ' + lines.length + ' receipts...\n'))
 
-  for (const line of lines.slice(-100)) { // verify last 100 for performance
+  // Verify every receipt. The previous `slice(-100)` silently left older
+  // entries unexamined while printing "100/100 valid" — tampering with the
+  // oldest receipt was undetectable and the output read as a clean bill.
+  for (const line of lines) {
     const result = verifyReceiptFromJson(line)
     if (result.ok) valid++
     else invalid++
   }
 
-  const totalChecked = Math.min(lines.length, 100)
+  const totalChecked = lines.length
   console.log(chalk.green(`  ${valid}/${totalChecked} valid`))
   if (invalid > 0) console.log(chalk.red(`  ${invalid}/${totalChecked} INVALID — tampered receipts detected!`))
   const pubKey = getReceiptPublicKey()

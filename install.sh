@@ -31,7 +31,14 @@ fi
 echo "  Node.js $(node -v) ✓"
 
 # Install via npm
-npm install -g ai-enforce 2>&1 | tail -3
+# Do not pipe into tail without checking status: the pipeline's exit code is
+# tail's, so a failed install still printed "installed successfully!".
+if ! npm install -g ai-enforce; then
+  echo ""
+  echo "  Install failed. ai-enforce is NOT installed."
+  echo "  If this is a permissions error, try: sudo npm install -g ai-enforce"
+  exit 1
+fi
 
 echo ""
 echo "  ai-enforce installed successfully!"

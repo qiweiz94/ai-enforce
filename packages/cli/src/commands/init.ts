@@ -52,22 +52,52 @@ export async function initCommand(options: { hooks?: boolean }) {
   }
 }
 
+const HOOK_MARKER = '# installed by ai-enforce'
+
 function installHook(hooksDir: string, hookName: string) {
   const hookPath = join(hooksDir, hookName)
   const backupPath = join(hooksDir, `${hookName}.ai-enforce-backup`)
 
+  // A backup already on disk means a previous install displaced a real hook;
+  // keep chaining it even when re-running init over our own hook.
+  let hasPredecessor = existsSync(backupPath)
+
   if (existsSync(hookPath)) {
-    // Backup existing hook
     const existing = readFileSync(hookPath, 'utf-8')
-    writeFileSync(backupPath, existing, 'utf-8')
-    console.log(chalk.yellow(`  Backed up existing ${hookName} hook to ${hookName}.ai-enforce-backup`))
+    if (!existing.includes(HOOK_MARKER)) {
+      // Preserve, don't destroy. Overwriting a project's pre-commit hook
+      // would disable the lint/test/secret-scan gates this tool exists to
+      // stop agents from bypassing — the exact harm, self-inflicted.
+      writeFileSync(backupPath, existing, 'utf-8')
+      execSync(`chmod +x "${backupPath}"`)
+      hasPredecessor = true
+      console.log(chalk.yellow(`  Preserved existing ${hookName} hook — it will run first, then ai-enforce.`))
+    }
   }
+
+  const chained = hasPredecessor
+    ? `
+# Run the hook that was here before ai-enforce was installed. Its failure is
+# still a failure — ai-enforce adds a gate, it does not replace yours.
+PRIOR="$(dirname "$0")/${hookName}.ai-enforce-backup"
+if [ -x "$PRIOR" ]; then
+  "$PRIOR" "$@" || exit $?
+fi
+`
+    : ''
 
   writeFileSync(hookPath, `#!/bin/bash
 # ai-enforce ${hookName} hook
-# This hook was installed by ai-enforce init
+${HOOK_MARKER}
 set -e
-command -v ai-enforce >/dev/null 2>&1 || { echo "ai-enforce not installed. Run: npm install -g ai-enforce"; exit 0; }
+${chained}
+# Fail closed: a missing binary means enforcement cannot run, which must not
+# be silently equivalent to passing.
+command -v ai-enforce >/dev/null 2>&1 || {
+  echo "ai-enforce: not installed — refusing to skip enforcement." >&2
+  echo "  Install it (npm install -g ai-enforce), or remove .git/hooks/${hookName}." >&2
+  exit 1
+}
 ai-enforce check --ci
 `, 'utf-8')
   execSync(`chmod +x "${hookPath}"`)
