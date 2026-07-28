@@ -1,11 +1,14 @@
 {
   "name": "@ai-enforce/core",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Shared core types, policy engine, and enforcement logic for ai-enforce",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
-  "files": ["dist", "README.md"],
+  "files": [
+    "dist",
+    "README.md"
+  ],
   "scripts": {
     "build": "tsc",
     "test": "vitest run",
