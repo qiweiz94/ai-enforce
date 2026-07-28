@@ -15,7 +15,7 @@
  *   ai-enforce serve --port 8080        # Custom port
  */
 
-import { PolicyEngine } from '@ai-enforce/core'
+import { PolicyEngine } from '../policy-engine.js'
 import { readFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 

@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import chalk from 'chalk'
-import type { AuditEntry } from '@ai-enforce/core'
+import type { AuditEntry } from '../types.js'
 
 export async function auditCommand(options: { json?: boolean; tail?: string }) {
   const logPath = join(process.cwd(), '.ai-enforce', 'audit.log')

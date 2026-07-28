@@ -2,7 +2,7 @@ import { readFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { execSync } from 'node:child_process'
 import chalk from 'chalk'
-import { PolicyEngine } from '@ai-enforce/core'
+import { PolicyEngine } from '../policy-engine.js'
 
 export async function checkCommand(
   target: string | undefined,

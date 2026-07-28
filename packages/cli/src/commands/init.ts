@@ -2,7 +2,7 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { execSync } from 'node:child_process'
 import { join } from 'node:path'
 import chalk from 'chalk'
-import { DEFAULT_POLICY_YAML } from '@ai-enforce/core'
+import { DEFAULT_POLICY_YAML } from '../policy-engine.js'
 
 export async function initCommand(options: { hooks?: boolean }) {
   const cwd = process.cwd()
