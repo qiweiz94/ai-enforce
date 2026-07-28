@@ -333,7 +333,15 @@ export class PolicyEngine {
     return /core\.hooksPath/.test(cmd) ||
       /\bHUSKY=0\b/.test(cmd) ||
       /\bLEFTHOOK=0\b/.test(cmd) ||
-      /SKIP=/.test(cmd)
+      /SKIP=/.test(cmd) ||
+      // MCP GitHub API writes that bypass local git hooks
+      /\bmcp__github__push_files\b/.test(cmd) ||
+      /\bmcp__github__create_or_update_file\b/.test(cmd) ||
+      /\bmcp__github__delete_file\b/.test(cmd) ||
+      /\bmcp__github__merge_pull_request\b/.test(cmd) ||
+      /\bmcp__github__update_pull_request_branch\b/.test(cmd) ||
+      // Generic MCP tool detection for file operations via API
+      /\bmcp__.*__(?:push|create|delete|write|merge|update)_/i.test(cmd)
   }
 
   private audit(result: EnforcementResult, event: ToolCallEvent): void {

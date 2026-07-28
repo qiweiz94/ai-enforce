@@ -86,8 +86,14 @@ export async function checkCommand(
       hasViolations = true
     }
     if (engine.checkHookBypass(cmd)) {
-      printResult({ action: 'block', rule_name: 'hook-bypass',
-        message: 'Git hook bypass attempt detected', timestamp: new Date().toISOString() })
+      const isMCPBypass = /\bmcp__github__/.test(cmd)
+      printResult({
+        action: 'block', rule_name: 'hook-bypass',
+        message: isMCPBypass
+          ? 'MCP API write detected — bypasses local git hooks. Use git directly instead.'
+          : 'Git hook bypass attempt detected',
+        timestamp: new Date().toISOString(),
+      })
       hasViolations = true
     }
     if (engine.checkSudo(cmd)) {

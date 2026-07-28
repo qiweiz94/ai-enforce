@@ -7,6 +7,7 @@ import { initCommand } from './commands/init.js'
 import { checkCommand } from './commands/check.js'
 import { auditCommand } from './commands/audit.js'
 import { serveCommand } from './commands/serve.js'
+import { templateCommand } from './commands/template.js'
 
 // Read version from package.json
 const __dirname = fileURLToPath(new URL('.', import.meta.url))
@@ -48,5 +49,13 @@ program
   .option('--port <number>', 'Port for HTTP transport', '3100')
   .option('--transport <mode>', 'Transport mode: stdio or http', 'stdio')
   .action(serveCommand)
+
+program
+  .command('template')
+  .description('List or preview policy templates')
+  .argument('[name]', 'Template name (default, strict, minimal, security)')
+  .option('--list', 'List all available templates')
+  .option('--apply', 'Apply template as .ai-enforce.yaml (not yet implemented)')
+  .action(templateCommand)
 
 program.parse(process.argv)
