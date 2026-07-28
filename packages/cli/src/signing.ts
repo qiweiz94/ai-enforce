@@ -42,7 +42,7 @@ export interface SignedEntry {
 }
 
 let currentKey: SigningKey | null = null
-let previousEntryHash: string | null = null
+const sessionHashChains = new Map<string, string | null>()
 
 export function initSigning(): SigningKey {
   if (currentKey) return currentKey
@@ -116,15 +116,18 @@ function canonicalizeJson(value: unknown): string {
 }
 
 export function createSignedEntry(
-  entry: Omit<SignedEntry, 'version' | 'id' | 'signature' | 'previousEntryHash' | 'timestamp'>
+  entry: Omit<SignedEntry, 'version' | 'id' | 'signature' | 'previousEntryHash' | 'timestamp'>,
+  sessionName?: string
 ): SignedEntry {
   const key = currentKey || initSigning()
+  const session = sessionName || process.env.AI_ENFORCE_SESSION_ID || 'default'
+  if (!sessionHashChains.has(session)) sessionHashChains.set(session, null)
 
   const signedEntry: SignedEntry = {
     version: 'audit-entry/v1',
     id: randomUUID(),
     timestamp: new Date().toISOString(),
-    previousEntryHash,
+    previousEntryHash: sessionHashChains.get(session)!,
     ...entry,
   }
 
@@ -141,9 +144,9 @@ export function createSignedEntry(
     sig: sig.toString('base64url'),
   }
 
-  // Update hash chain
+  // Update hash chain (per-session)
   const entryHash = createHash('sha256').update(canonical).digest('hex')
-  previousEntryHash = entryHash
+  sessionHashChains.set(session, entryHash)
 
   return signedEntry
 }
@@ -163,6 +166,7 @@ export function verifySignedEntry(entry: SignedEntry, publicKeyJwk: object): boo
   }
 }
 
-export function resetHashChain(): void {
-  previousEntryHash = null
+export function resetHashChain(sessionName?: string): void {
+  const session = sessionName || process.env.AI_ENFORCE_SESSION_ID || 'default'
+  sessionHashChains.set(session, null)
 }

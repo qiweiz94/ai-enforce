@@ -14,8 +14,9 @@
     "clean": "npm run clean --workspaces"
   },
   "devDependencies": {
+    "@open-policy-agent/opa-wasm": "^1.10.0",
+    "@types/node": "^22.0.0",
     "typescript": "^5.5.0",
-    "vitest": "^2.0.0",
-    "@types/node": "^22.0.0"
+    "vitest": "^2.0.0"
   }
 }

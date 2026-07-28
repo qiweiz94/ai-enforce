@@ -31,7 +31,7 @@ Also available:
 
 For MCP integration with AI coding assistants:
 
-  npx @ai-enforce/mcp-server
+  ai-enforce serve
 
-Documentation: https://github.com/nanoclaw/ai-enforce
+Documentation: https://github.com/qiweiz94/ai-enforce
 `)

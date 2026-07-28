@@ -33,6 +33,7 @@ export interface RegoPolicyResult {
 
 export class RegoEngine {
   private wasmModule: WebAssembly.Module | null = null
+  private wasmPath: string | null = null
   private policyData: Record<string, unknown> = {}
   private entrypoint: number = 0
 
@@ -56,11 +57,12 @@ export class RegoEngine {
   /**
    * Load a compiled WASM policy file
    */
-  async loadWasm(wasmPath: string): Promise<void> {
-    if (!existsSync(wasmPath)) {
-      throw new Error('WASM file not found: ' + wasmPath)
+  async loadWasm(path: string): Promise<void> {
+    if (!existsSync(path)) {
+      throw new Error('WASM file not found: ' + path)
     }
-    const wasmBuffer = readFileSync(wasmPath)
+    this.wasmPath = path
+    const wasmBuffer = readFileSync(path)
     this.wasmModule = await WebAssembly.compile(wasmBuffer)
   }
 
@@ -75,23 +77,15 @@ export class RegoEngine {
 
   /**
    * Evaluate an action against the loaded Rego policy.
-   * Returns structured results with allow/deny/block/warn verdicts.
+   * Uses actual OPA WASM evaluation via @open-policy-agent/opa-wasm.
    */
-  evaluate(input: Record<string, unknown>): RegoPolicyResult {
+  async evaluate(input: Record<string, unknown>): Promise<RegoPolicyResult> {
     if (!this.wasmModule) {
       return { allow: false, deny: true, block: true, warn: false, errors: ['No WASM policy loaded'] }
     }
 
     try {
-      // Build the evaluation input
-      const evalInput = {
-        input,
-        data: this.policyData,
-      }
-
-      // In a production implementation, this would use opa-wasm's evaluate()
-      // For now, we implement a basic Rego evaluation wrapper
-      const result = this.evaluateRego(evalInput)
+      const result = await this.evaluateWasm(input)
       return result
     } catch (err) {
       return {
@@ -105,50 +99,55 @@ export class RegoEngine {
   }
 
   /**
-   * Internal evaluation — executes the WASM policy against input.
-   * Uses the OPA WASM ABI convention.
+   * Evaluate using the real OPA WASM ABI via @open-policy-agent/opa-wasm.
    */
-  private evaluateRego(input: { input: Record<string, unknown>; data: Record<string, unknown> }): RegoPolicyResult {
-    // This implementation wraps the OPA WASM ABI convention.
-    // The compiled WASM exports:
-    //   - opa_eval(entrypoint, data_offset, data_len, input_offset, input_len)
-    //   - Returns a JSON string with results
-    //
-    // For the MVP, we simulate the evaluation by running the OPA CLI
-    // with the compiled policy. In production, this would use
-    // @open-policy-agent/opa-wasm for in-process evaluation.
+  private async evaluateWasm(input: Record<string, unknown>): Promise<RegoPolicyResult> {
+    // Dynamically import opa-wasm (avoids hard dependency)
+    let opaWasm: any
+    try {
+      opaWasm = await import('@open-policy-agent/opa-wasm')
+    } catch {
+      return { allow: false, deny: true, block: true, warn: false, errors: ['@open-policy-agent/opa-wasm not installed'] }
+    }
 
-    const result: RegoPolicyResult = {
+    // Load the policy from the compiled WASM buffer
+    const wasmBuffer = readFileSync(this.wasmPath!)
+    const policy = await opaWasm.loadPolicy(wasmBuffer)
+
+    // Set data if available
+    if (Object.keys(this.policyData).length > 0) {
+      policy.setData(this.policyData)
+    }
+
+    // Evaluate the input against the policy
+    const result = policy.evaluate(input)
+
+    // Parse the result — OPA returns an array of result sets
+    // Each result has expressions with values
+    const output: RegoPolicyResult = {
       allow: true,
       deny: false,
       block: false,
       warn: false,
     }
 
-    // Check for "deny" rules
-    const cmd = String(input.input.command || '')
-    const toolName = String(input.input.tool_name || '')
-
-    // Pattern matching against known dangerous operations
-    // This is a simplified version — a full Rego engine would run the actual policy
-    if (/rm -rf \/|rm -rf ~/.test(cmd)) {
-      result.allow = false
-      result.deny = true
-      result.block = true
+    if (Array.isArray(result) && result.length > 0) {
+      for (const resultSet of result) {
+        if (resultSet.result) {
+          const val = resultSet.result
+          if (val.deny === true || val.block === true) {
+            output.allow = false
+            output.deny = val.deny === true
+            output.block = val.block === true
+          }
+          if (val.warn === true) {
+            output.warn = true
+          }
+        }
+      }
     }
 
-    if (/git.*--no-verify|git push --force(?!-with-lease)/.test(cmd)) {
-      result.allow = false
-      result.deny = true
-      result.block = true
-    }
-
-    if (/sudo /.test(cmd)) {
-      result.block = true
-      if (result.allow) result.allow = false
-    }
-
-    return result
+    return output
   }
 
   /**
@@ -190,7 +189,7 @@ export async function policyEvalCommand(wasmFile: string, options: { input?: str
   }
 
   const input = options.input ? JSON.parse(readFileSync(options.input, 'utf-8')) : { tool_name: 'bash', command: 'rm -rf /' }
-  const result = engine.evaluate(input)
+  const result = await engine.evaluate(input)
   console.log(JSON.stringify(result, null, 2))
 }
 

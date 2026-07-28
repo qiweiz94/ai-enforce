@@ -1,6 +1,12 @@
 import { randomUUID } from 'node:crypto'
-import { readFileSync, existsSync, appendFileSync, mkdirSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { readFileSync, existsSync, appendFileSync, mkdirSync, writeFileSync, statSync } from 'node:fs'
+import { join, extname } from 'node:path'
+
+const BINARY_EXTENSIONS = new Set(['.wasm', '.woff', '.woff2', '.ttf', '.eot', '.ico', '.png', '.jpg', '.jpeg', '.gif', '.svg', '.mp4', '.mp3', '.pdf', '.zip', '.gz', '.tar', '.node', '.so', '.dylib', '.dll', '.exe', '.o', '.a', '.pyc', '.pyo'])
+function isTextFile(filePath: string): boolean {
+  const ext = extname(filePath).toLowerCase()
+  return !BINARY_EXTENSIONS.has(ext)
+}
 import { parse as parseYaml } from 'yaml'
 import type {
   PolicyFile, ToolCallEvent, EnforcementResult, AuditEntry,
@@ -101,12 +107,15 @@ export class PolicyEngine {
       const filePath = String(event.args.filePath || '')
       this.readFiles.add(filePath)
       results.push(...this.evaluateFileRead(filePath))
-      // Check file content for secrets and content rules
+      // Check file content for secrets and content rules (with safety limits)
       try {
-        const content = readFileSync(filePath, 'utf-8')
-        const secretResult = this.checkSecret(content)
-        if (secretResult) results.push(secretResult)
-        results.push(...this.evaluateContentRules(content, filePath))
+        const st = statSync(filePath)
+        if (st.size <= 10 * 1024 * 1024 && isTextFile(filePath)) {
+          const content = readFileSync(filePath, 'utf-8')
+          const secretResult = this.checkSecret(content)
+          if (secretResult) results.push(secretResult)
+          results.push(...this.evaluateContentRules(content, filePath))
+        }
       } catch { /* file may not exist or be readable */ }
     }
 

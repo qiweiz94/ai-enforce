@@ -3,7 +3,7 @@ import { join } from 'node:path'
 import { execSync } from 'node:child_process'
 import chalk from 'chalk'
 import { PolicyEngine } from '../policy-engine.js'
-import { analyzeReasoningHandler } from '../reasoning.js'
+import { analyzeReasoning, type ReasoningVerdict } from '../reasoning.js'
 
 export async function checkCommand(
   target: string | undefined,
@@ -111,7 +111,22 @@ export async function checkCommand(
 
   // Reasoning trace analysis (--analyze-reasoning flag)
   if (options.analyzeReasoning) {
-    analyzeReasoningHandler(options.analyzeReasoning, options.command || '', 'bash')
+    const verdict = analyzeReasoning({
+      reasoning: options.analyzeReasoning,
+      proposedAction: options.command || '',
+      toolName: 'bash',
+    })
+    if (verdict) {
+      const icon = verdict.suggestedAction === 'block' ? chalk.red('✗') :
+        verdict.suggestedAction === 'warn' ? chalk.yellow('⚠') : chalk.green('?')
+      const label = verdict.suggestedAction === 'block' ? 'BLOCK' :
+        verdict.suggestedAction === 'warn' ? 'WARN' : 'NOTE'
+      console.log(`${icon} [${chalk.bold(label)}] Reasoning: ${verdict.explanation}`)
+      console.log(`   Confidence: ${(verdict.confidence * 100).toFixed(0)}%`)
+      if (verdict.suggestedAction === 'block') hasViolations = true
+    } else {
+      console.log(chalk.green('Reasoning analysis: no suspicious patterns'))
+    }
   }
 
   if (!target && !options.file && !options.command && !options.ci) {
