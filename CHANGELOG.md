@@ -1,5 +1,73 @@
 # Changelog
 
+## Unreleased
+
+**Security release. Real-time enforcement did not work in any prior version.**
+If you installed the Claude Code PreToolUse hook or the Cline plugin from an
+earlier release, treat everything they reported as unverified — see
+[docs/enforcement-audit-2026-07-28.md](docs/enforcement-audit-2026-07-28.md).
+
+### Fixed — enforcement
+
+- **The Claude Code PreToolUse hook allowed every tool call**, including
+  `rm -rf /`. It parsed the payload for `"tool"`/`"filePath"` while Claude Code
+  sends `tool_name`/`tool_input`/`file_path`, so it never matched and fell
+  through to `allow`. It also failed *open* on a missing binary, on any crash,
+  and on any command containing an escaped quote. Now parses with a real JSON
+  parser, emits the documented nested response, and denies on every error path.
+- **The hook's settings template could never fire it** — `"matcher": "Bash(*)"`
+  is the permissions grammar and an invalid regex. `Write` was also missing.
+- **`init --hooks` made repositories uncommittable.** An advisory
+  edit-before-read *warning* counted as a violation, so `check --ci` exited 1 for
+  every staged file and the installed pre-commit hook rejected every commit.
+- **`init --hooks` destroyed existing git hooks.** It now preserves the previous
+  hook and chains it; that hook's failure still fails the commit.
+- **A malformed or empty policy file silently reverted to weaker defaults**, or
+  crashed the CLI, which the hook converted to `allow`. Absent file ⇒ defaults;
+  present but broken ⇒ fail closed.
+- **Nothing protected the enforcement configuration.** Added a default rule
+  covering `.ai-enforce.yaml`, `.ai-enforce/`, `.claude/settings.json`,
+  `.git/hooks/`.
+- **Shell injection in `autoVerify`** via an interpolated file path. Now
+  `execFileSync` with argv, and actually wired into `check` — it previously had
+  no callers at all.
+- **Globs with a non-leading `**` matched nothing**, so rules and excludes users
+  believed were active did nothing.
+- **A blocked command exited 0**, and one invalid regex in a policy disabled all
+  enforcement.
+- **The Cline plugin failed open by design** and shelled out with the command it
+  was policing. Rewritten: argv-based and fail-closed.
+- `install.sh` masked npm failure and reported success regardless.
+
+### Fixed — evidence
+
+- **No action receipt had ever been written.** `createSign('ed25519')` throws
+  (Ed25519 takes no digest name) and the error was swallowed. `verify` also
+  could not load its key, reporting every receipt invalid.
+- **The audit hash chain reset every process**, so no entry linked to another and
+  deletion was undetectable. It now persists across runs, and `verify` checks
+  linkage — not just per-entry signatures. Pre-upgrade logs are recognised and
+  not reported as tampered.
+- `verify` no longer silently checks only the last 100 receipts.
+- Private signing keys are written `0600`.
+
+### Changed
+
+- `@ai-enforce/core` is now the single source of truth; the CLI's forked engine
+  is a re-export. **`ai-enforce` therefore depends on `@ai-enforce/core`, which
+  must be published first** (`scripts/publish.sh` already does this).
+- `packages/mcp-server` added to workspaces — it previously could not build.
+- New `check --file <path> --write` evaluates write rules; the CLI could
+  previously only ask about reads.
+- Tests are no longer compiled into published packages.
+
+### Added
+
+- 102 new tests covering the shipped enforcement path, the hook contract, the
+  evidence chain, and detector evasion. CI's `npm test` step had been failing
+  since tests were introduced, because the CLI path was resolved from
+  `process.cwd()`.
+
 ## 0.1.0 (2026-07-28)
 
 Initial alpha release.
