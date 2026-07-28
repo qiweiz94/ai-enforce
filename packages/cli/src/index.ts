@@ -10,6 +10,7 @@ import { serveCommand } from './commands/serve.js'
 import { templateCommand } from './commands/template.js'
 import { rulesCommand } from './commands/rules.js'
 import { scanCommand } from './commands/scan.js'
+import { policyBuildCommand, policyEvalCommand, policyInitCommand } from './rego-engine.js'
 
 // Read version from package.json
 const __dirname = fileURLToPath(new URL('.', import.meta.url))
@@ -36,6 +37,7 @@ program
   .option('-f, --file <path>', 'Check a specific file')
   .option('-c, --command <cmd>', 'Check a specific command')
   .option('--ci', 'CI mode: exit with error on any violation')
+  .option('--analyze-reasoning <text>', 'Analyze agent reasoning trace for suspicious patterns')
   .action(checkCommand)
 
 program
@@ -74,5 +76,26 @@ program
   .option('--json', 'Output as JSON')
   .option('--dir <path>', 'Custom project directory to scan')
   .action(scanCommand)
+
+const policy = program.command('policy').description('Manage Rego/WASM policies')
+
+policy
+  .command('init')
+  .description('Create a sample .rego policy file')
+  .action(policyInitCommand)
+
+policy
+  .command('build')
+  .description('Compile a .rego file to .wasm (requires opa CLI)')
+  .argument('<file>', 'Path to .rego file')
+  .option('--output <dir>', 'Output directory')
+  .action(policyBuildCommand)
+
+policy
+  .command('eval')
+  .description('Evaluate a WASM policy against input')
+  .argument('<wasm>', 'Path to .wasm file')
+  .option('--input <file>', 'JSON input file')
+  .action(policyEvalCommand)
 
 program.parse(process.argv)

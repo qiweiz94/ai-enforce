@@ -3,10 +3,11 @@ import { join } from 'node:path'
 import { execSync } from 'node:child_process'
 import chalk from 'chalk'
 import { PolicyEngine } from '../policy-engine.js'
+import { analyzeReasoningHandler } from '../reasoning.js'
 
 export async function checkCommand(
   target: string | undefined,
-  options: { file?: string; command?: string; ci?: boolean }
+  options: { file?: string; command?: string; ci?: boolean; analyzeReasoning?: string }
 ) {
   const cwd = process.cwd()
   const engine = new PolicyEngine(join(cwd, '.ai-enforce.yaml'))
@@ -106,6 +107,11 @@ export async function checkCommand(
         message: 'pkill -f python blocked (can kill system processes)', timestamp: new Date().toISOString() })
       hasViolations = true
     }
+  }
+
+  // Reasoning trace analysis (--analyze-reasoning flag)
+  if (options.analyzeReasoning) {
+    analyzeReasoningHandler(options.analyzeReasoning, options.command || '', 'bash')
   }
 
   if (!target && !options.file && !options.command && !options.ci) {
