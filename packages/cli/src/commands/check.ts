@@ -4,6 +4,7 @@ import { execSync } from 'node:child_process'
 import chalk from 'chalk'
 import { PolicyEngine } from '../policy-engine.js'
 import { analyzeReasoning, type ReasoningVerdict } from '../reasoning.js'
+import { checkAnomaly, printAnomaly } from '../anomaly.js'
 
 export async function checkCommand(
   target: string | undefined,
@@ -106,6 +107,15 @@ export async function checkCommand(
       printResult({ action: 'block', rule_name: 'pkill-python',
         message: 'pkill -f python blocked (can kill system processes)', timestamp: new Date().toISOString() })
       hasViolations = true
+    }
+  }
+
+  // Behavioral anomaly detection
+  if (options.command) {
+    const anomaly = checkAnomaly('local', 'bash', { command: options.command })
+    if (anomaly) {
+      printAnomaly(anomaly)
+      if (anomaly.confidence > 0.7) hasViolations = true
     }
   }
 

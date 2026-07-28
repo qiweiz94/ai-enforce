@@ -10,6 +10,7 @@ import { serveCommand } from './commands/serve.js'
 import { templateCommand } from './commands/template.js'
 import { rulesCommand } from './commands/rules.js'
 import { scanCommand } from './commands/scan.js'
+import { verifyCommand } from './commands/verify.js'
 import { policyBuildCommand, policyEvalCommand, policyInitCommand } from './rego-engine.js'
 
 // Read version from package.json
@@ -76,6 +77,15 @@ program
   .option('--json', 'Output as JSON')
   .option('--dir <path>', 'Custom project directory to scan')
   .action(scanCommand)
+
+program
+  .command('verify')
+  .description('Verify signed action receipts')
+  .argument('[receipt-file]', 'Receipt JSON file to verify (optional — verifies all if omitted)')
+  .option('--receipt <path>', 'Path to receipt file')
+  .option('--key <path>', 'Public key JWK file for verification')
+  .option('--json', 'JSON output')
+  .action(verifyCommand)
 
 const policy = program.command('policy').description('Manage Rego/WASM policies')
 

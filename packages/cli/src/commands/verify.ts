@@ -1,0 +1,76 @@
+import { readFileSync, existsSync, readdirSync } from 'node:fs'
+import { join } from 'node:path'
+import chalk from 'chalk'
+import { verifyReceiptFromJson, getReceiptPublicKey } from '../receipts.js'
+import { createReceipt } from '../receipts.js'
+
+export async function verifyCommand(target?: string, options?: { key?: string; receipt?: string; json?: boolean }) {
+  const opts = options || {}
+  // Single receipt verification
+  if (opts.receipt) {
+    const publicKey = opts.key ? JSON.parse(readFileSync(opts.key, 'utf-8')) : undefined
+    const receiptPath = opts.receipt
+    if (!existsSync(receiptPath)) {
+      console.log(chalk.red('Receipt file not found: ' + receiptPath))
+      return
+    }
+    const raw = readFileSync(receiptPath, 'utf-8')
+    const result = verifyReceiptFromJson(raw, publicKey)
+    if (opts.json) {
+      console.log(JSON.stringify(result, null, 2))
+      return
+    }
+    console.log(result.ok ? chalk.green('✓ Receipt VERIFIED') : chalk.red('✗ Receipt INVALID: ' + result.reason))
+    return
+  }
+
+  // Batch verify all receipts in the default directory
+  const receiptsDir = join(process.cwd(), '.ai-enforce', 'receipts')
+  if (!existsSync(receiptsDir)) {
+    console.log(chalk.yellow('No receipts directory found at ' + receiptsDir))
+    console.log(chalk.cyan('Run `ai-enforce check` to generate receipts.'))
+    return
+  }
+
+  const logFile = join(receiptsDir, 'receipts.log')
+  if (!existsSync(logFile)) {
+    console.log(chalk.yellow('No receipts log found.'))
+    return
+  }
+
+  const lines = readFileSync(logFile, 'utf-8').trim().split('\n').filter(Boolean)
+  let valid = 0
+  let invalid = 0
+
+  console.log(chalk.cyan('\nVerifying ' + lines.length + ' receipts...\n'))
+
+  for (const line of lines.slice(-100)) { // verify last 100 for performance
+    const result = verifyReceiptFromJson(line)
+    if (result.ok) valid++
+    else invalid++
+  }
+
+  const totalChecked = Math.min(lines.length, 100)
+  console.log(chalk.green(`  ${valid}/${totalChecked} valid`))
+  if (invalid > 0) console.log(chalk.red(`  ${invalid}/${totalChecked} INVALID — tampered receipts detected!`))
+  const pubKey = getReceiptPublicKey()
+  const kid = pubKey ? (pubKey as any).kid : 'unknown'
+  console.log(chalk.cyan(`  Public key: ${kid}\n`))
+}
+
+/**
+ * Generate a signed receipt for an enforcement action.
+ * Called by the policy engine during evaluation.
+ */
+export function generateReceipt(
+  agentId: string,
+  toolName: string,
+  args: Record<string, unknown>,
+  verdict: string,
+  ruleName: string,
+  policyName: string
+): void {
+  try {
+    createReceipt(agentId, toolName, args, verdict, ruleName, policyName)
+  } catch { /* best-effort */ }
+}

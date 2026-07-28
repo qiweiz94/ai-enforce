@@ -13,6 +13,7 @@ import type {
   CommandRule, FileRule, ContentRule, EnforcementAction, PatternDef,
 } from './types.js'
 import { createSignedEntry, initSigning } from './signing.js'
+import { createReceipt } from './receipts.js'
 
 export const SECRET_ENV_PATTERNS = [
   /\b(?:OPENAI|ANTHROPIC|DEEPSEEK|AWS|GITLAB|OPENCODE)_(?:API_KEY|SECRET|TOKEN)(?![a-zA-Z0-9])/,
@@ -548,6 +549,18 @@ export class PolicyEngine {
       if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
       appendFileSync(join(dir, 'audit.log'), JSON.stringify(signed) + '\n')
     } catch { /* best-effort disk write */ }
+
+    // Generate signed action receipt (offline-verifiable evidence)
+    try {
+      createReceipt(
+        process.env.AI_ENFORCE_SESSION_ID || 'local',
+        event.tool_name,
+        event.args,
+        result.action,
+        result.rule_name,
+        'default'
+      )
+    } catch { /* best-effort receipt generation */ }
   }
 
   getAuditLog(): AuditEntry[] {
