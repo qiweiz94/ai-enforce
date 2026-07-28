@@ -11,6 +11,7 @@ import { templateCommand } from './commands/template.js'
 import { rulesCommand } from './commands/rules.js'
 import { scanCommand } from './commands/scan.js'
 import { verifyCommand } from './commands/verify.js'
+import { gatewayCommand } from './commands/gateway.js'
 import { policyBuildCommand, policyEvalCommand, policyInitCommand } from './rego-engine.js'
 
 // Read version from package.json
@@ -86,6 +87,14 @@ program
   .option('--key <path>', 'Public key JWK file for verification')
   .option('--json', 'JSON output')
   .action(verifyCommand)
+
+program
+  .command('gateway')
+  .description('Start the MCP security gateway (bidirectional proxy)')
+  .option('--upstream <json>', 'Upstream MCP server config (JSON)')
+  .option('--command <cmd>', 'Upstream command string')
+  .option('--port <number>', 'HTTP port for gateway dashboard', '3100')
+  .action(gatewayCommand)
 
 const policy = program.command('policy').description('Manage Rego/WASM policies')
 
