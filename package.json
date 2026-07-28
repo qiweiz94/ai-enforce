@@ -1,0 +1,22 @@
+{
+  "name": "ai-enforce",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Pre-commit hooks for AI coding assistants. Stop AI agents from making the same mistakes twice.",
+  "workspaces": [
+    "packages/core",
+    "packages/cli",
+    "packages/mcp-server"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces",
+    "test": "npm run test --workspaces",
+    "lint": "npm run lint --workspaces",
+    "clean": "npm run clean --workspaces"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.0",
+    "vitest": "^2.0.0",
+    "@types/node": "^22.0.0"
+  }
+}

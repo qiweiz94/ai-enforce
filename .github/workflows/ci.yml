@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [20, 22]
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+
+      - run: npm ci
+      - run: npm run build
+      - run: npm test
+
+      # Integration test: verify CLI works end-to-end
+      - name: Integration test
+        run: |
+          cd /tmp
+          mkdir test-ae-ci
+          cd test-ae-ci
+          git init
+          node ${{ github.workspace }}/packages/cli/dist/index.js init --hooks
+          node ${{ github.workspace }}/packages/cli/dist/index.js --version
+          node ${{ github.workspace }}/packages/cli/dist/index.js check --command "rm -rf /" | grep -q "BLOCKED"
+          node ${{ github.workspace }}/packages/cli/dist/index.js check --command "git commit --no-verify" | grep -q "BLOCKED"
+          node ${{ github.workspace }}/packages/cli/dist/index.js check --command "npm install" | grep -q "OK"
+          node ${{ github.workspace }}/packages/cli/dist/index.js audit --json
+          echo "All integration tests passed"

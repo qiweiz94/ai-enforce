@@ -1,0 +1,31 @@
+{
+  "name": "@ai-enforce/mcp-server",
+  "version": "0.1.0",
+  "description": "(DEPRECATED — use 'ai-enforce serve' instead) MCP enforcement server for real-time policy checking",
+  "type": "module",
+  "main": "./dist/index.js",
+  "bin": {
+    "ai-enforce-mcp": "./bin/ai-enforce-mcp.js"
+  },
+  "files": ["dist", "bin", "README.md"],
+  "scripts": {
+    "build": "tsc",
+    "start": "node ./dist/index.js",
+    "test": "vitest run",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@ai-enforce/core": "*",
+    "@modelcontextprotocol/sdk": "^1.0.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.0",
+    "vitest": "^2.0.0",
+    "@types/node": "^22.0.0"
+  },
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/nanoclaw/ai-enforce.git"
+  }
+}

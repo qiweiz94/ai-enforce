@@ -1,0 +1,15 @@
+- id: ai-enforce-check
+  name: ai-enforce check
+  description: Check staged changes against AI coding assistant governance policies
+  entry: ai-enforce check --ci
+  language: node
+  stages: [pre-commit, pre-push]
+  pass_filenames: false
+
+- id: ai-enforce-secrets
+  name: ai-enforce secrets
+  description: Check for secrets and API keys in staged changes
+  entry: ai-enforce check --ci
+  language: node
+  stages: [pre-commit]
+  pass_filenames: false

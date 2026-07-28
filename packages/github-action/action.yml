@@ -1,0 +1,15 @@
+name: 'AI Enforce Check'
+description: 'Check PR changes against AI coding assistant governance policies'
+author: 'nanoclaw'
+inputs:
+  policy-path:
+    description: 'Path to .ai-enforce.yaml policy file'
+    required: false
+    default: '.ai-enforce.yaml'
+runs:
+  using: 'composite'
+  steps:
+    - run: npm install -g ai-enforce
+      shell: bash
+    - run: ai-enforce check --ci
+      shell: bash

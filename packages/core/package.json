@@ -1,0 +1,26 @@
+{
+  "name": "@ai-enforce/core",
+  "version": "0.1.0",
+  "description": "Shared core types, policy engine, and enforcement logic for ai-enforce",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": ["dist", "README.md"],
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "yaml": "^2.5.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.0",
+    "vitest": "^2.0.0"
+  },
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/nanoclaw/ai-enforce.git"
+  }
+}

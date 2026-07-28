@@ -1,0 +1,26 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash(*)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash .ai-enforce/hooks/pre-tool-use.sh",
+            "timeout": 5000
+          }
+        ]
+      },
+      {
+        "matcher": "Edit(*)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash .ai-enforce/hooks/pre-tool-use.sh",
+            "timeout": 5000
+          }
+        ]
+      }
+    ]
+  }
+}
