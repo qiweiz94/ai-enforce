@@ -183,7 +183,7 @@ export async function templateCommand(
     for (const name of customTemplates) {
       console.log(`  ${chalk.yellow(name)} (custom)`)
     }
-    console.log(chalk.cyan('\nUsage: ai-enforce template <name> [--apply]\n'))
+    console.log(chalk.cyan('\nUsage: ai-enforce template <name>\n'))
     return
   }
 

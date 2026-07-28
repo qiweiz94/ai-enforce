@@ -62,7 +62,6 @@ program
   .description('List or preview policy templates')
   .argument('[name]', 'Template name (default, strict, minimal, security)')
   .option('--list', 'List all available templates')
-  .option('--apply', 'Apply template as .ai-enforce.yaml (not yet implemented)')
   .action(templateCommand)
 
 program
