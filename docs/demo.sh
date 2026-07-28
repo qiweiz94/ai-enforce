@@ -14,8 +14,10 @@ cd "$DEMO_DIR"
 git init
 
 echo "📦 Setting up ai-enforce..."
-AI_ENFORCE_CLI="/Users/nanoclaw/code/ai-enforce/packages/cli"
-ai-enforce() { node "$AI_ENFORCE_CLI/dist/index.js" "$@"; }
+if ! command -v ai-enforce &>/dev/null; then
+  echo "Error: ai-enforce not installed. Run: npm install -g ai-enforce"
+  exit 1
+fi
 ai-enforce init --hooks 2>/dev/null || true
 
 echo ""

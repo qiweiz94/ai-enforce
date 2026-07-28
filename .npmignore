@@ -8,8 +8,3 @@ data/
 *.ts
 tsconfig.json
 install.sh
-CHANGELOG.md
-CONTRIBUTING.md
-SECURITY.md
-.editorconfig
-.pre-commit-hooks.yaml
