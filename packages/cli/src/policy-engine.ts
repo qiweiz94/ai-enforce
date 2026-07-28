@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { readFileSync, existsSync, appendFileSync, mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { parse as parseYaml } from 'yaml'
@@ -5,6 +6,7 @@ import type {
   PolicyFile, ToolCallEvent, EnforcementResult, AuditEntry,
   CommandRule, FileRule, ContentRule, EnforcementAction, PatternDef,
 } from './types.js'
+import { createSignedEntry, initSigning } from './signing.js'
 
 export const SECRET_ENV_PATTERNS = [
   /\b(?:OPENAI|ANTHROPIC|DEEPSEEK|AWS|GITLAB|OPENCODE)_(?:API_KEY|SECRET|TOKEN)(?![a-zA-Z0-9])/,
@@ -345,6 +347,31 @@ export class PolicyEngine {
   }
 
   private audit(result: EnforcementResult, event: ToolCallEvent): void {
+    // Create signed entry (Ed25519, hash-chained)
+    let signed: any
+    try {
+      initSigning()
+      signed = createSignedEntry({
+        action: result.action,
+        rule_name: result.rule_name,
+        message: result.message,
+        tool_name: event.tool_name,
+      })
+    } catch {
+      // Fall back to unsigned entry if signing fails
+      signed = {
+        version: 'audit-entry/v1',
+        id: randomUUID(),
+        timestamp: result.timestamp,
+        action: result.action,
+        rule_name: result.rule_name,
+        message: result.message,
+        tool_name: event.tool_name,
+        args: event.args,
+        previousEntryHash: null,
+      }
+    }
+
     const entry: AuditEntry = {
       timestamp: result.timestamp,
       tool_name: event.tool_name,
@@ -355,11 +382,11 @@ export class PolicyEngine {
       session_id: process.env.AI_ENFORCE_SESSION_ID,
     }
     this.auditLog.push(entry)
-    // Persist to disk
+    // Persist to disk (signed)
     try {
       const dir = join(process.cwd(), '.ai-enforce')
       if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
-      appendFileSync(join(dir, 'audit.log'), JSON.stringify(entry) + '\n')
+      appendFileSync(join(dir, 'audit.log'), JSON.stringify(signed) + '\n')
     } catch { /* best-effort disk write */ }
   }
 

@@ -1,0 +1,281 @@
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
+import { homedir, platform } from 'node:os'
+import { join } from 'node:path'
+import chalk from 'chalk'
+
+/**
+ * ai-enforce scan command
+ * Auto-discovers AI coding assistant configurations on the machine.
+ * Inspired by Snyk Agent Scan's discovery pipeline.
+ */
+
+interface DetectedTool {
+  name: string
+  installed: boolean
+  configPaths: string[]
+  mcpServers: Array<{
+    name: string
+    command?: string
+    args?: string[]
+    url?: string
+    type: 'stdio' | 'http' | 'sse'
+  }>
+  skillsDirs: string[]
+}
+
+const HOME = homedir()
+const IS_MAC = platform() === 'darwin'
+const IS_LINUX = platform() === 'linux'
+const IS_WIN = platform() === 'win32'
+
+// Per-OS file path definitions for every supported AI agent
+// Based on Snyk Agent Scan's well_known_clients.py data model
+const AGENT_PATHS: Record<string, {
+  installCheck: string[]
+  configs: string[]
+  skills?: string[]
+  managed?: Record<string, string>
+  workspace?: string[]
+  platform?: string[]
+}> = {
+  'claude-code': {
+    installCheck: [join(HOME, '.claude')],
+    configs: [
+      join(HOME, '.claude.json'),
+    ],
+    skills: [join(HOME, '.claude', 'skills')],
+    managed: IS_MAC
+      ? { darwin: '/Library/Application Support/ClaudeCode/managed-mcp.json' }
+      : IS_LINUX
+      ? { linux: '/etc/claude-code/managed-mcp.json' }
+      : { win32: '%PROGRAMFILES%/ClaudeCode/managed-mcp.json' },
+  },
+  'cursor': {
+    installCheck: [join(HOME, '.cursor')],
+    configs: [join(HOME, '.cursor', 'mcp.json')],
+    skills: [join(HOME, '.cursor', 'skills')],
+    workspace: ['.cursor/mcp.json'],
+  },
+  'windsurf': {
+    installCheck: [join(HOME, '.codeium')],
+    configs: [join(HOME, '.codeium', 'windsurf', 'mcp_config.json')],
+    skills: [join(HOME, '.codeium', 'windsurf', 'skills')],
+    workspace: ['.windsurf/mcp.json'],
+  },
+  'vscode': {
+    installCheck: [join(HOME, '.vscode')],
+    configs: IS_MAC ? [
+      join(HOME, 'Library', 'Application Support', 'Code', 'User', 'settings.json'),
+      join(HOME, '.vscode', 'mcp.json'),
+      join(HOME, 'Library', 'Application Support', 'Code', 'User', 'mcp.json'),
+    ] : IS_LINUX ? [
+      join(HOME, '.config', 'Code', 'User', 'settings.json'),
+      join(HOME, '.vscode', 'mcp.json'),
+      join(HOME, '.config', 'Code', 'User', 'mcp.json'),
+    ] : [
+      join(HOME, 'AppData', 'Roaming', 'Code', 'User', 'settings.json'),
+      join(HOME, '.vscode', 'mcp.json'),
+    ],
+    skills: [join(HOME, '.copilot', 'skills')],
+    workspace: ['.vscode/mcp.json'],
+  },
+  'claude-desktop': {
+    installCheck: IS_MAC
+      ? [join(HOME, 'Library', 'Application Support', 'Claude')]
+      : IS_WIN
+      ? [join(HOME, 'AppData', 'Roaming', 'Claude')]
+      : [],
+    configs: IS_MAC
+      ? [join(HOME, 'Library', 'Application Support', 'Claude', 'claude_desktop_config.json')]
+      : IS_WIN
+      ? [join(HOME, 'AppData', 'Roaming', 'Claude', 'claude_desktop_config.json')]
+      : [],
+  },
+  'gemini-cli': {
+    installCheck: [join(HOME, '.gemini')],
+    configs: [join(HOME, '.gemini', 'settings.json')],
+    skills: [join(HOME, '.gemini', 'skills')],
+  },
+  'amazon-q': {
+    installCheck: [join(HOME, '.aws', 'amazonq')],
+    configs: [
+      join(HOME, '.aws', 'amazonq', 'agents', 'default.json'),
+      join(HOME, '.aws', 'amazonq', 'agents', 'mcp.json'),
+      join(HOME, '.aws', 'amazonq', 'mcp.json'),
+    ],
+  },
+  'antigravity': {
+    installCheck: [join(HOME, '.gemini', 'antigravity')],
+    configs: [join(HOME, '.gemini', 'antigravity', 'mcp_config.json')],
+  },
+  'kiro': {
+    installCheck: [join(HOME, '.kiro')],
+    configs: [join(HOME, '.kiro', 'settings', 'mcp.json')],
+    workspace: ['.kiro/mcp.json'],
+  },
+  'opencode': {
+    installCheck: [join(HOME, '.config', 'opencode')],
+    configs: [],
+  },
+  'codex': {
+    installCheck: [join(HOME, '.codex')],
+    configs: [],
+    skills: [join(HOME, '.codex', 'skills')],
+  },
+}
+
+function parseMCPConfig(filePath: string): Array<{ name: string; command?: string; args?: string[]; url?: string; type: 'stdio' | 'http' | 'sse' }> {
+  try {
+    if (!existsSync(filePath)) return []
+    const raw = readFileSync(filePath, 'utf-8')
+    const config = JSON.parse(raw)
+
+    const toEntry = ([name, cfg]: [string, any]) => ({
+      name,
+      command: cfg.command,
+      args: cfg.args,
+      url: cfg.url,
+      type: (cfg.command ? 'stdio' : cfg.url ? 'http' : 'stdio') as 'stdio' | 'http' | 'sse',
+    })
+
+    // Format 1: {"mcpServers": {"name": {"command": "...", ...}}}
+    if (config.mcpServers && typeof config.mcpServers === 'object')
+      return Object.entries(config.mcpServers).map(toEntry)
+
+    // Format 2: {"mcp": {"servers": {"name": {...}}}}
+    if (config.mcp?.servers && typeof config.mcp.servers === 'object')
+      return Object.entries(config.mcp.servers).map(toEntry)
+
+    // Format 3: {"servers": {"name": {...}}}
+    if (config.servers && typeof config.servers === 'object')
+      return Object.entries(config.servers).map(toEntry)
+
+    // Format 4: {"name": {"command": "...", ...}}
+    const entries = Object.entries(config).filter(([_, c]: [string, any]) => c.command || c.url)
+    if (entries.length > 0) return entries.map(toEntry)
+
+    return []
+  } catch {
+    return []
+  }
+}
+
+function detectTools(detectDir?: string): DetectedTool[] {
+  const results: DetectedTool[] = []
+  const cwd = detectDir || process.cwd()
+
+  for (const [name, paths] of Object.entries(AGENT_PATHS)) {
+    const tool: DetectedTool = {
+      name,
+      installed: false,
+      configPaths: [],
+      mcpServers: [],
+      skillsDirs: [],
+    }
+
+    // Check installation
+    for (const checkPath of paths.installCheck) {
+      if (existsSync(checkPath)) {
+        tool.installed = true
+        break
+      }
+    }
+
+    // Check config files
+    for (const configPath of paths.configs) {
+      tool.configPaths.push(configPath)
+      const servers = parseMCPConfig(configPath)
+      tool.mcpServers.push(...servers)
+    }
+
+    // Check workspace configs
+    if (paths.workspace) {
+      for (const wsPath of paths.workspace) {
+        const fullPath = join(cwd, wsPath)
+        if (existsSync(fullPath)) {
+          tool.configPaths.push(fullPath)
+          const servers = parseMCPConfig(fullPath)
+          tool.mcpServers.push(...servers)
+        }
+      }
+    }
+
+    // Check skills directories
+    if (paths.skills) {
+      for (const skillPath of paths.skills) {
+        if (existsSync(skillPath)) {
+          tool.skillsDirs.push(skillPath)
+        }
+      }
+    }
+
+    results.push(tool)
+  }
+
+  return results
+}
+
+export async function scanCommand(options: { json?: boolean; dir?: string }) {
+  const cwd = options.dir || process.cwd()
+
+  console.log(chalk.cyan(`\nai-enforce scan — detecting AI coding assistant configurations\n`))
+  console.log(`  Scanning: ${cwd}\n`)
+
+  const tools = detectTools(options.dir)
+
+  const installed = tools.filter(t => t.installed)
+  const withMCP = tools.filter(t => t.mcpServers.length > 0)
+
+  if (options.json) {
+    const output = tools.map(t => ({
+      name: t.name,
+      installed: t.installed,
+      configPaths: t.configPaths.filter(p => existsSync(p)),
+      mcpServers: t.mcpServers,
+      skillsDirs: t.skillsDirs.filter(p => existsSync(p)),
+      configCount: t.configPaths.filter(p => existsSync(p)).length,
+      mcpCount: t.mcpServers.length,
+    }))
+    console.log(JSON.stringify(output, null, 2))
+    return
+  }
+
+  if (installed.length === 0) {
+    console.log(chalk.yellow('  No AI coding assistants detected on this machine.\n'))
+    return
+  }
+
+  console.log(chalk.green(`  Found ${installed.length} AI coding assistant(s):\n`))
+
+  for (const tool of installed) {
+    const mcpCount = tool.mcpServers.length
+    const configCount = tool.configPaths.filter(p => existsSync(p)).length
+    const skillCount = tool.skillsDirs.filter(p => existsSync(p)).length
+
+    console.log(`  ${chalk.bold(tool.name)}`)
+    console.log(`    Config files: ${configCount}${tool.configPaths.map(p => existsSync(p) ? `\n      ${p}` : '').join('')}`)
+
+    if (mcpCount > 0) {
+      console.log(`    MCP servers: ${mcpCount}`)
+      for (const server of tool.mcpServers) {
+        const type = server.command ? `stdio:${server.command}` : server.url ? `http:${server.url}` : 'unknown'
+        console.log(`      - ${server.name} (${type})`)
+      }
+    }
+
+    if (skillCount > 0) {
+      console.log(`    Skills directories: ${skillCount}`)
+      for (const dir of tool.skillsDirs) {
+        if (existsSync(dir)) console.log(`      ${dir}`)
+      }
+    }
+
+    console.log('')
+  }
+
+  if (withMCP.length > 0) {
+    console.log(chalk.cyan('  Security note:'))
+    console.log(chalk.cyan('    MCP servers execute arbitrary commands on your machine.'))
+    console.log(chalk.cyan('    Run `ai-enforce check --ci` to verify your policies cover them.\n'))
+  }
+}

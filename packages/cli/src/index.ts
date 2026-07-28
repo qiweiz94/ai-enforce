@@ -8,6 +8,8 @@ import { checkCommand } from './commands/check.js'
 import { auditCommand } from './commands/audit.js'
 import { serveCommand } from './commands/serve.js'
 import { templateCommand } from './commands/template.js'
+import { rulesCommand } from './commands/rules.js'
+import { scanCommand } from './commands/scan.js'
 
 // Read version from package.json
 const __dirname = fileURLToPath(new URL('.', import.meta.url))
@@ -57,5 +59,19 @@ program
   .option('--list', 'List all available templates')
   .option('--apply', 'Apply template as .ai-enforce.yaml (not yet implemented)')
   .action(templateCommand)
+
+program
+  .command('rules')
+  .description('Import rules from external sources')
+  .argument('[source]', 'Rule source (atr)')
+  .option('--output <path>', 'Output directory')
+  .action(rulesCommand)
+
+program
+  .command('scan')
+  .description('Detect AI coding assistant configurations on this machine')
+  .option('--json', 'Output as JSON')
+  .option('--dir <path>', 'Custom project directory to scan')
+  .action(scanCommand)
 
 program.parse(process.argv)
