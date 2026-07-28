@@ -99,12 +99,13 @@ ai-enforce audit              # View enforcement log
 ai-enforce enforces policy at THREE levels, in order of effectiveness:
 
 ### Level 1: PreToolUse Hook (Real-Time — RECOMMENDED)
-Intercepts EVERY tool call BEFORE the AI executes it. The AI **cannot override** this.
+Intercepts tool calls BEFORE execution. The AI **cannot override** this. Currently supports:
 
 | Tool | Method | Setup |
 |------|--------|-------|
 | **Claude Code** | `PreToolUse` hook | `bash docs/hooks/claude-code-setup.sh` |
 | **Cline** | `tool.execute.before` plugin | `cp docs/hooks/cline-plugin.mjs .opencode/plugins/` |
+| **Cursor, Windsurf, Copilot** | Git hooks (Level 2) | `ai-enforce init --hooks` |
 
 ```bash
 # Example: Claude Code blocked in real-time

@@ -130,6 +130,96 @@ export class PolicyEngine {
       }
     }
 
+    // Evaluate env_rules (check command against restricted env vars)
+    if (this.policy.env_rules && event.tool_name === 'bash') {
+      const cmd = String(event.args.command || '')
+      for (const rule of this.policy.env_rules) {
+        for (const v of rule.vars) {
+          if (cmd.includes(v)) {
+            results.push({
+              action: rule.action, rule_name: rule.name,
+              message: rule.message || `Restricted environment variable referenced: ${v}`,
+              timestamp: new Date().toISOString(),
+            })
+          }
+        }
+      }
+    }
+
+    // Evaluate rate_limits
+    if (this.policy.rate_limits) {
+      const now = Date.now()
+      for (const rule of this.policy.rate_limits) {
+        const key = `${rule.scope}:${rule.name}`
+        const entry = this.rateLimitCounts.get(key)
+        if (entry && (now - entry.windowStart) < rule.window * 1000) {
+          entry.count++
+          if (entry.count > rule.max_calls) {
+            results.push({
+              action: rule.action, rule_name: rule.name,
+              message: rule.message || `Rate limit exceeded: ${rule.max_calls} per ${rule.window}s`,
+              timestamp: new Date().toISOString(),
+            })
+          }
+        } else {
+          this.rateLimitCounts.set(key, { count: 1, windowStart: now })
+        }
+      }
+    }
+
+    // Evaluate time_rules
+    if (this.policy.time_rules) {
+      const now = new Date()
+      const hour = now.getHours()
+      const minute = now.getMinutes()
+      const currentMinutes = hour * 60 + minute
+      const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+      const currentDay = dayNames[now.getDay()]
+
+      for (const rule of this.policy.time_rules) {
+        if (!rule.schedule) continue
+        const startParts = rule.schedule.start.split(':').map(Number)
+        const endParts = rule.schedule.end.split(':').map(Number)
+        const startMinutes = startParts[0] * 60 + (startParts[1] || 0)
+        const endMinutes = endParts[0] * 60 + (endParts[1] || 0)
+
+        const withinSchedule = currentMinutes >= startMinutes && currentMinutes < endMinutes
+        const dayMatch = !rule.schedule.days || rule.schedule.days.includes(currentDay)
+
+        if (!withinSchedule || !dayMatch) {
+          // Outside allowed schedule — check if this action is in scope
+          for (const subject of rule.subjects) {
+            for (const p of subject.patterns || []) {
+              if (p.regex && new RegExp(p.regex, 'i').test(String(event.args.command || event.args.filePath || ''))) {
+                results.push({
+                  action: rule.outside_schedule_action || 'prompt',
+                  rule_name: rule.name,
+                  message: rule.message || `Action restricted outside allowed hours (${rule.schedule.start}-${rule.schedule.end})`,
+                  timestamp: new Date().toISOString(),
+                })
+              }
+            }
+          }
+        }
+      }
+    }
+
+    // Evaluate network_rules (basic URL pattern matching)
+    if (this.policy.network_rules && event.tool_name === 'bash') {
+      const cmd = String(event.args.command || '')
+      for (const rule of this.policy.network_rules) {
+        for (const p of rule.patterns) {
+          if (p.regex && new RegExp(p.regex, 'i').test(cmd)) {
+            results.push({
+              action: rule.action, rule_name: rule.name,
+              message: rule.message || `Network rule matched: ${p.regex.slice(0, 80)}`,
+              timestamp: new Date().toISOString(),
+            })
+          }
+        }
+      }
+    }
+
     if (this.policy.settings?.audit_log !== false) {
       for (const r of results) {
         this.audit(r, event)

@@ -137,12 +137,17 @@ Only Semgrep does this (post-hoc), and it can be bypassed with `--no-verify`. ai
 
 | Priority | Feature | Source | Effort | Status |
 |----------|---------|--------|--------|--------|
-| P0 | Policy template library (`ai-enforce template`) | Guardrails AI | 2 days | 📋 Planned |
+| P0 | Policy template library (`ai-enforce template`) | Guardrails AI | 2 days | ✅ Done |
 | P0 | MCP API write detection (improved) | block-no-verify | 1 day | ✅ Done |
-| P1 | Auto-discover tool configs (`ai-enforce scan`) | Snyk Agent Scan | 3 days | 📋 Planned |
-| P1 | Tamper-evident audit logs (Ed25519 signed) | DashClaw | 2 days | 📋 Planned |
-| P2 | Rego as optional policy engine | Cupcake | 5 days | 🔮 Future |
-| P2 | Anomaly detection classifier | Aegis | 5 days | 🔮 Future |
+| P1 | Auto-discover tool configs (`ai-enforce scan`) | Snyk Agent Scan | 3 days | ✅ Done |
+| P1 | Tamper-evident audit logs (Ed25519 signed) | DashClaw | 2 days | ✅ Done |
+| P1 | ATR rule import (10 categories + lanes) | Agent Threat Rules | 5 days | ✅ Done |
+| P2 | Rego as optional policy engine | Cupcake | 5 days | ✅ Done (partial — requires `@open-policy-agent/opa-wasm`) |
+| P2 | Reasoning trace analysis | Adrian | 5 days | ✅ Done |
+| P2 | Fail-closed guarantee | Doberman | 2 days | ✅ Done |
+| P2 | Anomaly detection classifier | Aegis | 5 days | 📋 Planned |
+| P2 | Signed action receipts (evidence trail) | Pipelock | 3 days | 📋 Planned |
+| P3 | MCP security gateway (bidirectional proxy) | Pipelock, AGT | 5 days | 📋 Planned |
 | P3 | OS-level sandbox (`ai-enforce sandbox`) | agentsh | 3 weeks | 🔮 Future |
 | P3 | Formal specs + conformance tests | MS AGT | Ongoing | 🔮 Future |
 
