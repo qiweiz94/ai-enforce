@@ -2,9 +2,9 @@
 
 **Pre-commit hooks for AI coding assistants.** Stop AI agents from making the same mistakes twice.
 
-[![npm version](https://img.shields.io/badge/npm-0.1.0--alpha-blue)](https://github.com/nanoclaw/ai-enforce)
+[![npm version](https://img.shields.io/npm/v/ai-enforce)](https://www.npmjs.com/package/ai-enforce)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
-[![CI](https://github.com/nanoclaw/ai-enforce/actions/workflows/ci.yml/badge.svg)](https://github.com/nanoclaw/ai-enforce/actions)
+[![CI](https://github.com/qiweiz94/ai-enforce/actions/workflows/ci.yml/badge.svg)](https://github.com/qiweiz94/ai-enforce/actions)
 
 ```bash
 npm install -g ai-enforce

@@ -1,6 +1,6 @@
 {
   "name": "@ai-enforce/core",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Shared core types, policy engine, and enforcement logic for ai-enforce",
   "type": "module",
   "main": "./dist/index.js",

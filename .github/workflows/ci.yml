@@ -22,18 +22,6 @@ jobs:
       - run: npm ci
       - run: npm run build
       - run: npm test
-
-      # Integration test: verify CLI works end-to-end
-      - name: Integration test
-        run: |
-          cd /tmp
-          mkdir test-ae-ci
-          cd test-ae-ci
-          git init
-          node ${{ github.workspace }}/packages/cli/dist/index.js init --hooks
-          node ${{ github.workspace }}/packages/cli/dist/index.js --version
-          node ${{ github.workspace }}/packages/cli/dist/index.js check --command "rm -rf /" | grep -q "BLOCKED"
-          node ${{ github.workspace }}/packages/cli/dist/index.js check --command "git commit --no-verify" | grep -q "BLOCKED"
-          node ${{ github.workspace }}/packages/cli/dist/index.js check --command "npm install" | grep -q "OK"
-          node ${{ github.workspace }}/packages/cli/dist/index.js audit --json
-          echo "All integration tests passed"
+      - run: npx vitest run packages/cli/src/__tests__/cli.test.ts
+        env:
+          CI: true

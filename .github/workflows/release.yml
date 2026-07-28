@@ -6,8 +6,24 @@ on:
       - 'v*'
 
 jobs:
-  release:
+  test:
     runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm ci
+      - run: npm run build
+      - run: npm test
+      - run: npx vitest run packages/cli/src/__tests__/cli.test.ts
+
+  release:
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -16,9 +32,7 @@ jobs:
           registry-url: 'https://registry.npmjs.org'
       - run: npm ci
       - run: npm run build
-      - run: npm publish --workspace=packages/core
-      - run: npm publish --workspace=packages/cli
-      - run: npm publish --workspace=packages/mcp-server
+      - run: npm publish --workspace=packages/cli --access public --provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
       - uses: softprops/action-gh-release@v2
